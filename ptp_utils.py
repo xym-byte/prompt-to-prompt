@@ -293,6 +293,3 @@ def get_time_words_attention_alpha(prompts, num_steps,
                     alpha_time_words = update_alpha_time_word(alpha_time_words, item, i, ind)
     alpha_time_words = alpha_time_words.reshape(num_steps + 1, len(prompts) - 1, 1, 1, max_num_words)
     return alpha_time_words
-
-# 正确方式：用ddim_inversion反推出扩散latent
-latent = ptp_utils.ddim_inversion(ldm, image_tensor, prompt="a painting of a boy", num_inference_steps=NUM_DIFFUSION_STEPS)
