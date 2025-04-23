@@ -293,3 +293,35 @@ def get_time_words_attention_alpha(prompts, num_steps,
                     alpha_time_words = update_alpha_time_word(alpha_time_words, item, i, ind)
     alpha_time_words = alpha_time_words.reshape(num_steps + 1, len(prompts) - 1, 1, 1, max_num_words)
     return alpha_time_words
+
+@torch.no_grad()
+def ddim_inversion(model, image_tensor, prompt: str, num_inference_steps: int = 50):
+    """
+    Given an image_tensor (1,3,256,256) and its original prompt,
+    run DDIM inversion to get a latent that corresponds to that image.
+
+    This allows you to do prompt-to-prompt editing from a real image.
+    """
+    # Step 1: encode image to latent using VAE
+    latents = model.vqvae.encode(image_tensor).latent_dist.mean
+    latents = latents * 0.18215  # match SD scale
+
+    # Step 2: get prompt embedding
+    text_input = model.tokenizer([prompt], padding="max_length", max_length=77, return_tensors="pt")
+    text_embeddings = model.bert(text_input.input_ids.to(model.device))[0]
+    uncond_input = model.tokenizer([""], padding="max_length", max_length=77, return_tensors="pt")
+    uncond_embeddings = model.bert(uncond_input.input_ids.to(model.device))[0]
+    context = torch.cat([uncond_embeddings, text_embeddings])
+
+    # Step 3: inverse diffusion using DDIM
+    model.scheduler.set_timesteps(num_inference_steps)
+    timesteps = model.scheduler.timesteps
+
+    for i, t in enumerate(reversed(timesteps)):
+        latents_input = torch.cat([latents] * 2)
+        noise_pred = model.unet(latents_input, t, encoder_hidden_states=context)["sample"]
+        noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+        noise_pred = noise_pred_uncond + 5.0 * (noise_pred_text - noise_pred_uncond)
+        latents = model.scheduler.add_noise(latents, noise_pred, t)
+
+    return latents
